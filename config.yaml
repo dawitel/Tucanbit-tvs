@@ -1,0 +1,42 @@
+server:
+  host: ${SERVER_HOST}
+  port: ${SERVER_PORT}
+  environment: ${ENVIRONMENT}
+database:
+  host: ${DB_HOST}
+  port: ${DB_PORT}
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  dbname: ${DB_NAME}
+  sslmode: ${DB_SSLMODE}
+  max_open_conns: 100
+  max_idle_conns: 10
+  conn_max_lifetime: 1h
+external_services:
+  indexing_engine:
+    base_url: ${INDEXING_ENGINE_URL}
+    api_key: ${INDEXING_ENGINE_API_KEY}
+    timeout: 10s
+    max_retries: 3
+    retry_delay: 2s
+  pdm:
+    base_url: ${PDM_URL}
+    api_key: ${PDM_API_KEY}
+    timeout: 10s
+    max_retries: 3
+    retry_delay: 2s
+verification:
+  timeout: 30s
+  concurrent_workers: 10
+  cache_enabled: true
+  cache_ttl: 1h
+security:
+  api_key: ${API_KEY}
+  encryption_key: ${ENCRYPTION_KEY}
+  tls_cert_path: ${TLS_CERT_PATH}
+  tls_key_path: ${TLS_KEY_PATH}
+websocket:
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  check_origin: false
+  ping_period: 54s

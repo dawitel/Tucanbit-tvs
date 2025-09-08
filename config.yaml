@@ -1,42 +1,73 @@
 server:
-  host: ${SERVER_HOST}
-  port: ${SERVER_PORT}
-  environment: ${ENVIRONMENT}
+  host: localhost
+  port: 8081
+  environment: development
+
 database:
-  host: ${DB_HOST}
-  port: ${DB_PORT}
-  user: ${DB_USER}
-  password: ${DB_PASSWORD}
-  dbname: ${DB_NAME}
-  sslmode: ${DB_SSLMODE}
-  max_open_conns: 100
-  max_idle_conns: 10
-  conn_max_lifetime: 1h
-external_services:
-  indexing_engine:
-    base_url: ${INDEXING_ENGINE_URL}
-    api_key: ${INDEXING_ENGINE_API_KEY}
-    timeout: 10s
-    max_retries: 3
-    retry_delay: 2s
-  pdm:
-    base_url: ${PDM_URL}
-    api_key: ${PDM_API_KEY}
-    timeout: 10s
-    max_retries: 3
-    retry_delay: 2s
-verification:
+  host: "localhost"
+  port: 5433
+  name: "tucanbit"
+  user: "tucanbit"
+  password: "5kj0YmV5FKKpU9D50B7yH5A"
+  ssl_mode: "disable"
+  max_connections: 100
+  max_idle_connections: 10
+  idle_conn_timeout: "4m"
+
+jwt:
+  secret: "tokensecrethere"
+
+helius:
+  api_key: "fbdca7ba-40ec-4eaf-aac9-7ce749c15cf8"
+  base_urls:
+    devnet: "https://api-devnet.helius.xyz"
+    testnet: "https://api-devnet.helius.xyz"
+    mainnet-beta: "https://api.helius.xyz"
   timeout: 30s
+  max_retries: 3
+
+mint_addresses:
+  devnet:
+    USDC: "4BfkHw1csSnPkikFXgA2uqkmecEXj7p6V2t8kUxnmV84"
+    USDT: "HdqtwoAuNPQbhkrSSeL8mKYbnR9vyn3YvLwEirh5o2HJ"
+  testnet:
+    USDC: "4BfkHw1csSnPkikFXgA2uqkmecEXj7p6V2t8kUxnmV84"
+    USDT: "HdqtwoAuNPQbhkrSSeL8mKYbnR9vyn3YvLwEirh5o2HJ"
+  mainnet-beta:
+    USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    USDT: "HdqtwoAuNPQbhkrSSeL8mKYbnR9vyn3YvLwEirh5o2HJ"
+
+verification:
+  session_timeout_hours: 4
+  polling_interval: 30
   concurrent_workers: 10
   cache_enabled: true
-  cache_ttl: 1h
+  cache_ttl: 5m
+
 security:
-  api_key: ${API_KEY}
-  encryption_key: ${ENCRYPTION_KEY}
-  tls_cert_path: ${TLS_CERT_PATH}
-  tls_key_path: ${TLS_KEY_PATH}
+  api_key: "your_api_key_here"
+  encryption_key: "your_encryption_key_here"
+  tls_cert_path: ""
+  tls_key_path: ""
+
 websocket:
   read_buffer_size: 1024
   write_buffer_size: 1024
   check_origin: false
-  ping_period: 54s
+  ping_period: 30s
+
+pdm:
+  base_url: "http://localhost:8082"
+  timeout: 30
+  max_retries: 3
+  retry_backoff_base: 2
+  api_key: "your_pdm_api_key_here"
+  version: "v1"
+
+exchange_api_config:
+  base_url: "https://rest.coincap.io"
+  timeout: 30
+  max_retries: 3
+  retry_backoff_base: 1
+  api_key: "739dddfcb59353da97d604a3ab09edab8125f11c7c172eebed07cd66a6dec8a2"
+  version: "v1"

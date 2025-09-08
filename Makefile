@@ -20,6 +20,23 @@ run: build
 	@echo "Running tvs..."
 	@./$(BINARY_NAME)
 
+compose:
+	@echo "Starting Docker Compose..."
+	@docker-compose up -d
+	@echo "Docker Compose started."
+
+recompose:
+	@echo "Starting Docker Compose from scratch..."
+	@docker-compose down
+	@docker rmi wms-wms
+	@docker-compose up -d
+	@echo "Docker Compose started."
+
+stop:
+	@echo "Stopping Docker Compose..."
+	@docker-compose down
+	@echo "Docker Compose stopped."
+
 clean:
 	@echo "Cleaning up..."
 	@rm -rf bin

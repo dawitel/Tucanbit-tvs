@@ -11,20 +11,24 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
-	"github.com/tuncanbit/tvs/internal/application/services"
+	authservice "github.com/tuncanbit/tvs/internal/application/auth"
+	"github.com/tuncanbit/tvs/internal/application/verificationservice"
 	"github.com/tuncanbit/tvs/internal/server/handlers"
+	"github.com/tuncanbit/tvs/internal/server/websocket"
 	"github.com/tuncanbit/tvs/pkg/config"
 )
 
 type Server struct {
-	VerificationSvc services.IVerificationService
+	VerificationSvc verificationservice.IVerificationService
+	AuthSvc         authservice.IAuthService
 	Cfg             *config.Config
 	Logger          zerolog.Logger
 	Router          *gin.Engine
 	httpServer      *http.Server
+	WsHub           *websocket.WsHub
 }
 
-func New(cfg *config.Config, verificationService services.IVerificationService, logger zerolog.Logger) *Server {
+func New(cfg *config.Config, verificationService verificationservice.IVerificationService, AuthSvc authservice.IAuthService, logger zerolog.Logger, WsHub *websocket.WsHub) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
@@ -32,16 +36,20 @@ func New(cfg *config.Config, verificationService services.IVerificationService, 
 	return &Server{
 		Cfg:             cfg,
 		VerificationSvc: verificationService,
+		AuthSvc:         AuthSvc,
 		Logger:          logger,
 		Router:          router,
+		WsHub:           WsHub,
 	}
 }
 
 func (s *Server) SetupRouter() {
 	handler := handlers.New(
 		s.VerificationSvc,
+		s.AuthSvc,
 		s.Logger,
 		s.Cfg,
+		s.WsHub,
 	)
 	handler.SetupHandlers(s.Router)
 }

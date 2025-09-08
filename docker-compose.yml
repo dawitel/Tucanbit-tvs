@@ -1,56 +1,43 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15
     environment:
-      POSTGRES_DB: tvs
-      POSTGRES_USER: tvs
-      POSTGRES_PASSWORD: tvs
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: wms_user
+      POSTGRES_PASSWORD: wms_password
+      POSTGRES_DB: wms_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/schema:/docker-entrypoint-initdb.d
+    ports:
+      - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tvs"]
+      test: ["CMD-SHELL", "pg_isready -U wms_user -d wms_db"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - wms-network
 
   tvs:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      - DATABASE_URL=postgres://tvs:tvs@postgres:5432/tvs?sslmode=disable
-      - SERVER_ENVIRONMENT=development
-      - EXTERNAL_SERVICES_INDEXING_ENGINE_BASE_URL=http://indexing-engine:8081
-      - EXTERNAL_SERVICES_PDM_BASE_URL=http://pdm:8082
     volumes:
       - ./configs:/root/configs:ro
-
-  # Mock Indexing Engine service for testing
-  mock-ie:
-    image: mockserver/mockserver:5.15.0
-    ports:
-      - "8081:1080"
-    environment:
-      MOCKSERVER_SERVER_PORT: 1080
-      MOCKSERVER_LOG_LEVEL: INFO
-
-  # Mock PDM service for testing
-  mock-pdm:
-    image: mockserver/mockserver:5.15.0
-    ports:
-      - "8082:1080"
-    environment:
-      MOCKSERVER_SERVER_PORT: 1080
-      MOCKSERVER_LOG_LEVEL: INFO
+    networks:
+      - wms-network
 
 volumes:
   postgres_data:
+    driver: local
+
+networks:
+  wms-network:
+    driver: bridge

@@ -1,0 +1,244 @@
+package transactionrepo
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
+	"github.com/sqlc-dev/pqtype"
+
+	"github.com/tuncanbit/tvs/internal/domain"
+	"github.com/tuncanbit/tvs/internal/infrastructure/database"
+	transactionRepo "github.com/tuncanbit/tvs/internal/repositories/transactionrepo/gen"
+)
+
+type transactionRepository struct {
+	db     *sql.DB
+	store  *transactionRepo.Queries
+	logger zerolog.Logger
+}
+
+func New(db *database.DBManager, logger zerolog.Logger) ITransactionRepository {
+	return &transactionRepository{
+		db:     db.Db,
+		store:  transactionRepo.New(db.Db),
+		logger: logger,
+	}
+}
+
+func (r *transactionRepository) Create(ctx context.Context, tx domain.Transaction) error {
+	params := transactionRepo.CreateTransactionParams{
+		ChainID:          tx.ChainID,
+		CryptoCurrency:   tx.CryptoCurrency,
+		TxHash:           tx.TxHash,
+		FromAddress:      tx.FromAddress,
+		ToAddress:        tx.ToAddress,
+		Amount:           tx.Amount,
+		Fee:              sql.NullString{String: tx.Fee, Valid: tx.Fee != ""},
+		BlockNumber:      sql.NullInt64{Int64: tx.BlockNumber, Valid: tx.BlockNumber != 0},
+		BlockHash:        sql.NullString{String: tx.BlockHash, Valid: tx.BlockHash != ""},
+		Status:           string(tx.Status),
+		DepositSessionID: sql.NullString{String: tx.DepositSessionID, Valid: tx.DepositSessionID != ""},
+		WithdrawalID:     sql.NullString{String: tx.WithdrawalID, Valid: tx.WithdrawalID != ""},
+		UsdAmountCents:   sql.NullInt64{Int64: tx.USDAmountCents, Valid: tx.USDAmountCents >= 0},
+		ExchangeRate:     sql.NullString{String: tx.ExchangeRate, Valid: tx.ExchangeRate != ""},
+		Processor:        transactionRepo.Processortype(tx.Processor),
+		TransactionType:  string(tx.TransactionType),
+		Network:          tx.Network,
+		Confirmations:    int32(tx.Confirmations),
+		Timestamp:        sql.NullTime{Time: tx.Timestamp, Valid: !tx.Timestamp.IsZero()},
+		VerifiedAt:       sql.NullTime{Time: tx.VerifiedAt, Valid: !tx.VerifiedAt.IsZero()},
+		Metadata:         pqtype.NullRawMessage{RawMessage: tx.Metadata, Valid: tx.Metadata != nil},
+	}
+
+	err := r.store.CreateTransaction(ctx, params)
+	if err != nil {
+		r.logger.Error().Err(err).Str("tx_hash", tx.TxHash).Msg("Failed to create transaction")
+		return fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (r *transactionRepository) GetByHash(ctx context.Context, chainID, txHash string) (domain.Transaction, error) {
+	params := transactionRepo.GetTransactionByHashParams{
+		ChainID: chainID,
+		TxHash:  txHash,
+	}
+
+	txRow, err := r.store.GetTransactionByHash(ctx, params)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.Transaction{}, nil
+		}
+		r.logger.Error().Err(err).Str("chain_id", chainID).Str("tx_hash", txHash).Msg("Failed to get transaction by hash")
+		return domain.Transaction{}, fmt.Errorf("failed to get transaction by hash: %w", err)
+	}
+
+	return r.mapToDomainTransaction(txRow), nil
+}
+
+func (r *transactionRepository) GetByID(ctx context.Context, id string) (domain.Transaction, error) {
+	txRow, err := r.store.GetTransactionByID(ctx, uuid.MustParse(id))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.Transaction{}, nil
+		}
+		r.logger.Error().Err(err).Str("id", id).Msg("Failed to get transaction by ID")
+		return domain.Transaction{}, fmt.Errorf("failed to get transaction by ID: %w", err)
+	}
+
+	return r.mapToDomainTransaction(txRow), nil
+}
+
+func (r *transactionRepository) Update(ctx context.Context, tx domain.Transaction) error {
+	params := transactionRepo.UpdateTransactionParams{
+		ID:             uuid.MustParse(tx.ID),
+		ChainID:        tx.ChainID,
+		CryptoCurrency: tx.CryptoCurrency,
+		TxHash:         tx.TxHash,
+		FromAddress:    tx.FromAddress,
+		ToAddress:      tx.ToAddress,
+		Amount:         tx.Amount,
+		Fee:            sql.NullString{String: tx.Fee, Valid: tx.Fee != ""},
+		BlockNumber:    sql.NullInt64{Int64: tx.BlockNumber, Valid: tx.BlockNumber != 0},
+		BlockHash:      sql.NullString{String: tx.BlockHash, Valid: tx.BlockHash != ""},
+		Status:         string(tx.Status),
+		Confirmations:  int32(tx.Confirmations),
+		Timestamp:      sql.NullTime{Time: tx.Timestamp, Valid: !tx.Timestamp.IsZero()},
+		VerifiedAt:     sql.NullTime{Time: tx.VerifiedAt, Valid: !tx.VerifiedAt.IsZero()},
+		Metadata:       pqtype.NullRawMessage{RawMessage: tx.Metadata, Valid: tx.Metadata != nil},
+	}
+
+	_, err := r.store.UpdateTransaction(ctx, params)
+	if err != nil {
+		r.logger.Error().Err(err).Str("id", tx.ID).Msg("Failed to update transaction")
+		return fmt.Errorf("failed to update transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (r *transactionRepository) UpdateStatus(ctx context.Context, id string, status domain.VerificationStatus, metadata map[string]interface{}) error {
+	var metadataJSON []byte
+	var err error
+
+	if metadata != nil {
+		metadataJSON, err = json.Marshal(metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+	}
+
+	var verifiedAt *time.Time
+	if status == domain.StatusVerified {
+		now := time.Now()
+		verifiedAt = &now
+	}
+
+	params := transactionRepo.UpdateTransactionStatusParams{
+		ID:         uuid.MustParse(id),
+		Status:     string(status),
+		VerifiedAt: sql.NullTime{Time: *verifiedAt, Valid: verifiedAt != nil},
+		Metadata:   pqtype.NullRawMessage{RawMessage: metadataJSON, Valid: metadataJSON != nil},
+	}
+
+	_, err = r.store.UpdateTransactionStatus(ctx, params)
+	if err != nil {
+		r.logger.Error().Err(err).Str("id", id).Str("status", string(status)).Msg("Failed to update transaction status")
+		return fmt.Errorf("failed to update transaction status: %w", err)
+	}
+
+	return nil
+}
+
+func (r *transactionRepository) GetByAddress(ctx context.Context, chainID, address string, limit, offset int) ([]domain.Transaction, error) {
+	params := transactionRepo.GetTransactionsByAddressParams{
+		ChainID:     chainID,
+		FromAddress: address,
+		Limit:       int32(limit),
+		Offset:      int32(offset),
+	}
+
+	rows, err := r.store.GetTransactionsByAddress(ctx, params)
+	if err != nil {
+		r.logger.Error().Err(err).Str("chain_id", chainID).Str("address", address).Msg("Failed to get transactions by address")
+		return nil, fmt.Errorf("failed to get transactions by address: %w", err)
+	}
+
+	transactions := make([]domain.Transaction, 0, len(rows))
+	for _, txRow := range rows {
+		transactions = append(transactions, r.mapToDomainTransaction(txRow))
+	}
+
+	return transactions, nil
+}
+
+func (r *transactionRepository) GetPendingTransactions(ctx context.Context, limit int) ([]domain.Transaction, error) {
+	rows, err := r.store.GetPendingTransactions(ctx, int32(limit))
+	if err != nil {
+		r.logger.Error().Err(err).Msg("Failed to get pending transactions")
+		return nil, fmt.Errorf("failed to get pending transactions: %w", err)
+	}
+
+	transactions := make([]domain.Transaction, 0, len(rows))
+	for _, txRow := range rows {
+		transactions = append(transactions, r.mapToDomainTransaction(txRow))
+	}
+
+	return transactions, nil
+}
+
+func (r *transactionRepository) GetTransactionsByStatus(ctx context.Context, status domain.VerificationStatus, limit, offset int) ([]domain.Transaction, error) {
+	params := transactionRepo.GetTransactionsByStatusParams{
+		Status: string(status),
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	}
+
+	rows, err := r.store.GetTransactionsByStatus(ctx, params)
+	if err != nil {
+		r.logger.Error().Err(err).Str("status", string(status)).Msg("Failed to get transactions by status")
+		return nil, fmt.Errorf("failed to get transactions by status: %w", err)
+	}
+
+	transactions := make([]domain.Transaction, 0, len(rows))
+	for _, txRow := range rows {
+		transactions = append(transactions, r.mapToDomainTransaction(txRow))
+	}
+
+	return transactions, nil
+}
+
+func (r *transactionRepository) mapToDomainTransaction(txRow transactionRepo.Transactions) domain.Transaction {
+
+	var metadata json.RawMessage
+	if txRow.Metadata.Valid {
+		metadata = txRow.Metadata.RawMessage
+	}
+
+	return domain.Transaction{
+		ID:             txRow.ID.String(),
+		ChainID:        txRow.ChainID,
+		CryptoCurrency: txRow.CryptoCurrency,
+		TxHash:         txRow.TxHash,
+		FromAddress:    txRow.FromAddress,
+		ToAddress:      txRow.ToAddress,
+		Amount:         txRow.Amount,
+		Fee:            txRow.Fee.String,
+		BlockNumber:    txRow.BlockNumber.Int64,
+		BlockHash:      txRow.BlockHash.String,
+		Status:         domain.VerificationStatus(txRow.Status),
+		Confirmations:  int(txRow.Confirmations),
+		Timestamp:      txRow.Timestamp.Time,
+		VerifiedAt:     txRow.VerifiedAt.Time,
+		Metadata:       metadata,
+		CreatedAt:      txRow.CreatedAt.Time,
+		UpdatedAt:      txRow.UpdatedAt.Time,
+	}
+}

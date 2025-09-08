@@ -9,21 +9,45 @@ import (
 )
 
 type Config struct {
-	Server           ServerConfig           `yaml:"server"`
-	Database         DatabaseConfig         `yaml:"database"`
-	ExternalServices ExternalServicesConfig `yaml:"external_services"`
-	Verification     VerificationConfig     `yaml:"verification"`
-	Security         SecurityConfig         `yaml:"security"`
-	WebSocket        WebSocketConfig        `yaml:"websocket"`
+	Server            ServerConfig                 `yaml:"server"`
+	Database          DatabaseConfig               `yaml:"database"`
+	PDM               PDMConfig                    `yaml:"pdm"`
+	Verification      VerificationConfig           `yaml:"verification"`
+	Security          SecurityConfig               `yaml:"security"`
+	ExchangeAPIConfig ExchangeAPIConfig            `yaml:"exchange_api_config"`
+	WebSocket         WebSocketConfig              `yaml:"websocket"`
+	Helius            HeliusConfig                 `yaml:"helius"`
+	MintAddresses     map[string]map[string]string `yaml:"mint_addresses"` // cluster_type -> token_type -> mint_address
+	JWT               JWTConfig                    `yaml:"jwt"`
+}
+
+type JWTConfig struct {
+	Secret string `yaml:"secret"`
+}
+
+type ExchangeAPIConfig struct {
+	BaseURL          string `yaml:"base_url"`
+	Timeout          int    `yaml:"timeout"`
+	MaxRetries       int    `yaml:"max_retries"`
+	RetryBackoffBase int    `yaml:"retry_backoff_base"`
+	APIKey           string `yaml:"api_key"`
+	Version          string `yaml:"version"`
+}
+
+type HeliusConfig struct {
+	APIKey     string            `yaml:"api_key"`
+	BaseURLs   map[string]string `yaml:"base_urls"` // cluster_type -> base_url
+	Timeout    time.Duration     `yaml:"timeout"`
+	MaxRetries int               `yaml:"max_retries"`
 }
 
 type DatabaseConfig struct {
 	Host            string `yaml:"host"`
 	Port            string `yaml:"port"`
 	User            string `yaml:"user"`
+	DBName          string `yaml:"name"`
 	Password        string `yaml:"password"`
-	DBName          string `yaml:"dbname"`
-	SSLMode         string `yaml:"sslmode"`
+	SSLMode         string `yaml:"ssl_mode"`
 	MaxOpenConns    int    `yaml:"max_open_conns"`
 	MaxIdleConns    int    `yaml:"max_idle_conns"`
 	ConnMaxLifetime string `yaml:"conn_max_lifetime"`
@@ -35,32 +59,21 @@ type ServerConfig struct {
 	Environment string `yaml:"environment"`
 }
 
-type ExternalServicesConfig struct {
-	IndexingEngine IndexingEngineConfig `yaml:"indexing_engine"`
-	PDM            PDMConfig            `yaml:"pdm"`
-}
-
-type IndexingEngineConfig struct {
-	BaseURL    string        `yaml:"base_url"`
-	APIKey     string        `yaml:"api_key"`
-	Timeout    time.Duration `yaml:"timeout"`
-	MaxRetries int           `yaml:"max_retries"`
-	RetryDelay time.Duration `yaml:"retry_delay"`
-}
-
 type PDMConfig struct {
-	BaseURL    string        `yaml:"base_url"`
-	APIKey     string        `yaml:"api_key"`
-	Timeout    time.Duration `yaml:"timeout"`
-	MaxRetries int           `yaml:"max_retries"`
-	RetryDelay time.Duration `yaml:"retry_delay"`
+	BaseURL          string `yaml:"base_url"`
+	Timeout          int    `yaml:"timeout"`
+	MaxRetries       int    `yaml:"max_retries"`
+	RetryBackoffBase int    `yaml:"retry_backoff_base"`
+	APIKey           string `yaml:"api_key"`
+	Version          string `yaml:"version"`
 }
 
 type VerificationConfig struct {
-	Timeout           time.Duration `yaml:"timeout"`
-	ConcurrentWorkers int           `yaml:"concurrent_workers"`
-	CacheEnabled      bool          `yaml:"cache_enabled"`
-	CacheTTL          time.Duration `yaml:"cache_ttl"`
+	PollingInterval     int           `yaml:"polling_interval"`
+	SessionTimeoutHours int           `yaml:"session_timeout_hours"`
+	ConcurrentWorkers   int           `yaml:"concurrent_workers"`
+	CacheEnabled        bool          `yaml:"cache_enabled"`
+	CacheTTL            time.Duration `yaml:"cache_ttl"`
 }
 
 type SecurityConfig struct {
@@ -92,30 +105,5 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	expandEnvVars(&config)
-
 	return &config, nil
-}
-
-func expandEnvVars(config *Config) {
-	config.Database.Host = os.ExpandEnv(config.Database.Host)
-	config.Database.Port = os.ExpandEnv(config.Database.Port)
-	config.Database.User = os.ExpandEnv(config.Database.User)
-	config.Database.Password = os.ExpandEnv(config.Database.Password)
-	config.Database.DBName = os.ExpandEnv(config.Database.DBName)
-	config.Database.SSLMode = os.ExpandEnv(config.Database.SSLMode)
-
-	config.Server.Host = os.ExpandEnv(config.Server.Host)
-	config.Server.Port = os.ExpandEnv(config.Server.Port)
-	config.Server.Environment = os.ExpandEnv(config.Server.Environment)
-
-	config.ExternalServices.IndexingEngine.BaseURL = os.ExpandEnv(config.ExternalServices.IndexingEngine.BaseURL)
-	config.ExternalServices.IndexingEngine.APIKey = os.ExpandEnv(config.ExternalServices.IndexingEngine.APIKey)
-	config.ExternalServices.PDM.BaseURL = os.ExpandEnv(config.ExternalServices.PDM.BaseURL)
-	config.ExternalServices.PDM.APIKey = os.ExpandEnv(config.ExternalServices.PDM.APIKey)
-
-	config.Security.APIKey = os.ExpandEnv(config.Security.APIKey)
-	config.Security.EncryptionKey = os.ExpandEnv(config.Security.EncryptionKey)
-	config.Security.TLSCertPath = os.ExpandEnv(config.Security.TLSCertPath)
-	config.Security.TLSKeyPath = os.ExpandEnv(config.Security.TLSKeyPath)
 }

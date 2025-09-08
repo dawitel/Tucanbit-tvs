@@ -1,43 +1,43 @@
-version: "3.8"
-
 services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: wms_user
-      POSTGRES_PASSWORD: wms_password
-      POSTGRES_DB: wms_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/schema:/docker-entrypoint-initdb.d
-    ports:
-      - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wms_user -d wms_db"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - wms-network
-
   tvs:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5433
+      DATABASE_NAME: tucanbit
+      DATABASE_USER: tucanbit
+      DATABASE_PASSWORD: 5kj0YmV5FKKpU9D50B7yH5A
+      DATABASE_SSL_MODE: disable
+      DATABASE_MAX_CONNECTIONS: 100
+      DATABASE_MAX_IDLE_CONNECTIONS: 10
+      DATABASE_IDLE_CONN_TIMEOUT: 4m
     ports:
       - "8081:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./configs:/root/configs:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
-      - wms-network
-
-volumes:
-  postgres_data:
-    driver: local
+      - wms-shared-network
+    restart: unless-stopped
 
 networks:
-  wms-network:
-    driver: bridge
+  wms-shared-network:
+    external: true
+    name: wms-shared-network

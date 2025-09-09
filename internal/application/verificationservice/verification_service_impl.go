@@ -108,6 +108,13 @@ func (s *verificationService) processPendingSessions(ctx context.Context) error 
 				continue
 			}
 
+			if session.Status == domain.SessionStatusCompleted {
+				s.logger.Info().
+					Str("session_id", session.SessionID).
+					Msg("Skipping completed session")
+				continue
+			}
+
 			if time.Since(session.CreatedAt) > time.Duration(s.config.SessionTimeoutHours)*time.Hour {
 				session.Status = domain.SessionStatusExpired
 				if err := s.sessionRepo.UpdateDepositSessionStatus(ctx, session.SessionID, string(domain.SessionStatusExpired), "Session expired"); err != nil {
@@ -166,7 +173,12 @@ func (s *verificationService) processPendingWithdrawals(ctx context.Context) err
 					Msg("Skipping verification for PDM chain")
 				continue
 			}
-			// Skip withdrawals without TxHash if they're too new
+			if withdrawal.Status == domain.WithdrawalStatusCompleted {
+				s.logger.Info().
+					Str("withdrawal_id", withdrawal.WithdrawalID).
+					Msg("Skipping completed withdrawal")
+				continue
+			}
 			if withdrawal.TxHash == "" && time.Since(withdrawal.CreatedAt) < time.Duration(s.config.PollingInterval)*2*time.Second {
 				s.logger.Info().
 					Str("withdrawal_id", withdrawal.WithdrawalID).
@@ -177,8 +189,7 @@ func (s *verificationService) processPendingWithdrawals(ctx context.Context) err
 				s.logger.Warn().
 					Str("withdrawal_id", withdrawal.WithdrawalID).
 					Msg("No transaction hash for withdrawal, marking as failed")
-				withdrawal.Status = domain.WithdrawalStatusFailed
-				if err := s.withdrawalRepo.UpdateWithdrawal(ctx, withdrawal); err != nil {
+				if err := s.markWithdrawalFailed(ctx, withdrawal, "No transaction hash provided"); err != nil {
 					s.logger.Error().
 						Str("withdrawal_id", withdrawal.WithdrawalID).
 						Err(err).
@@ -253,6 +264,46 @@ func (s *verificationService) processSolanaWithdrawals(ctx context.Context, with
 }
 
 func (s *verificationService) verifySolanaSession(ctx context.Context, session domain.DepositSession) error {
+	tx, err := s.sessionRepo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction for session %s: %w", session.SessionID, err)
+	}
+	defer tx.Rollback()
+
+	updatedSession, err := s.sessionRepo.GetBySessionIDTx(ctx, tx, session.SessionID)
+	if err != nil {
+		return fmt.Errorf("failed to recheck session %s: %w", session.SessionID, err)
+	}
+
+	if updatedSession.Status != domain.SessionStatusPending {
+		s.logger.Info().
+			Str("session_id", session.SessionID).
+			Str("status", string(updatedSession.Status)).
+			Msg("Session no longer pending, skipping verification")
+		return tx.Commit()
+	}
+
+	if err := s.sessionRepo.UpdateDepositSessionStatusTx(ctx, tx, session.SessionID, string(domain.SessionStatusProcessing)); err != nil {
+		return fmt.Errorf("failed to mark session %s as processing: %w", session.SessionID, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction for session %s: %w", session.SessionID, err)
+	}
+
+	session.Status = domain.SessionStatusProcessing
+
+	s.wsHub.BroadcastDepositSession(session)
+
+	existingTx, err := s.transactionRepo.GetByDepositSessionID(ctx, session.SessionID)
+	if err == nil && existingTx.ID != "" && existingTx.DepositSessionID == session.SessionID {
+		s.logger.Info().
+			Str("session_id", session.SessionID).
+			Str("tx_id", existingTx.ID).
+			Msg("Session already has a transaction, skipping verification")
+		return nil
+	}
+
 	tokenType, err := mapCryptoToSPLTokenType(session.CryptoCurrency)
 	if err != nil {
 		s.logger.Info().
@@ -277,11 +328,11 @@ func (s *verificationService) verifySolanaSession(ctx context.Context, session d
 		return fmt.Errorf("Failed to get exchange rate, using default rate, %v", err)
 	}
 
-	requiredAmount := session.Amount // Already in decimal form (e.g., 3.0 USDC)
+	requiredAmount := session.Amount
 
 	params := rpc.VerifyDepositParams{
 		Address:        session.WalletAddress,
-		RequiredAmount: int64(requiredAmount * math.Pow(10, float64(decimals))), // Convert to lamports/units
+		RequiredAmount: int64(requiredAmount * math.Pow(10, float64(decimals))),
 		TokenType:      tokenType,
 		ClusterType:    clusterType,
 	}
@@ -292,13 +343,43 @@ func (s *verificationService) verifySolanaSession(ctx context.Context, session d
 		isVerified, transactions, err := s.heliusClient.VerifyDeposit(ctx, params)
 		if err == nil {
 			if isVerified {
-				return s.processVerifiedDeposit(ctx, session, transactions, tokenType, requiredAmount, clusterType, exchangeRate.Rate, decimals)
+				existingTx, txErr := s.transactionRepo.GetByDepositSessionID(ctx, session.SessionID)
+				if txErr == nil && existingTx.ID != "" && existingTx.DepositSessionID == session.SessionID {
+					s.logger.Info().
+						Str("session_id", session.SessionID).
+						Str("tx_id", existingTx.ID).
+						Msg("Session transaction created during verification, skipping")
+					return nil
+				}
+				if processErr := s.processVerifiedDeposit(ctx, session, transactions, tokenType, requiredAmount, clusterType, exchangeRate.Rate, decimals); processErr != nil {
+					if strings.Contains(processErr.Error(), "duplicate key value violates unique constraint \"unique_deposit_transaction\"") {
+						s.logger.Info().
+							Str("session_id", session.SessionID).
+							Str("tx_hash", transactions[0].Signature).
+							Msg("Transaction already created by another process, skipping")
+						return nil
+					}
+					if resetErr := s.sessionRepo.UpdateDepositSessionStatus(ctx, session.SessionID, string(domain.SessionStatusPending), fmt.Sprintf("Processing failed: %v", processErr)); resetErr != nil {
+						s.logger.Error().
+							Str("session_id", session.SessionID).
+							Err(resetErr).
+							Msg("Failed to reset session to pending after processing error")
+					}
+					return fmt.Errorf("failed to process verified deposit for session %s: %w", session.SessionID, processErr)
+				}
+				return nil
 			}
-			s.logger.Info().
+			s.logger.Warn().
 				Str("session_id", session.SessionID).
 				Int("attempt", attempt).
 				Msg("No matching transaction found")
 			if attempt == maxRetries {
+				if resetErr := s.sessionRepo.UpdateDepositSessionStatus(ctx, session.SessionID, string(domain.SessionStatusPending), "No matching transaction found after retries"); resetErr != nil {
+					s.logger.Error().
+						Str("session_id", session.SessionID).
+						Err(resetErr).
+						Msg("Failed to reset session to pending")
+				}
 				return nil
 			}
 		} else {
@@ -313,18 +394,69 @@ func (s *verificationService) verifySolanaSession(ctx context.Context, session d
 					continue
 				}
 			}
+			if resetErr := s.sessionRepo.UpdateDepositSessionStatus(ctx, session.SessionID, string(domain.SessionStatusPending), fmt.Sprintf("Verification failed: %v", err)); resetErr != nil {
+				s.logger.Error().
+					Str("session_id", session.SessionID).
+					Err(resetErr).
+					Msg("Failed to reset session to pending")
+			}
 			return fmt.Errorf("failed to verify deposit for session %s after %d attempts: %w", session.SessionID, maxRetries+1, err)
 		}
+	}
+	if resetErr := s.sessionRepo.UpdateDepositSessionStatus(ctx, session.SessionID, string(domain.SessionStatusPending), "No matching transaction found"); resetErr != nil {
+		s.logger.Error().
+			Str("session_id", session.SessionID).
+			Err(resetErr).
+			Msg("Failed to reset session to pending")
 	}
 	return nil
 }
 
 func (s *verificationService) verifySolanaWithdrawal(ctx context.Context, withdrawal domain.Withdrawal) error {
+	tx, err := s.withdrawalRepo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction for withdrawal %s: %w", withdrawal.WithdrawalID, err)
+	}
+	defer tx.Rollback()
+
+	updatedWithdrawal, err := s.withdrawalRepo.GetByWithdrawalIDTx(ctx, tx, withdrawal.WithdrawalID)
+	if err != nil {
+		return fmt.Errorf("failed to recheck withdrawal %s: %w", withdrawal.WithdrawalID, err)
+	}
+
+	if updatedWithdrawal.Status != domain.WithdrawalStatusPending {
+		s.logger.Info().
+			Str("withdrawal_id", withdrawal.WithdrawalID).
+			Str("status", string(updatedWithdrawal.Status)).
+			Msg("Withdrawal no longer pending, skipping verification")
+		return tx.Commit()
+	}
+
+	if err := s.withdrawalRepo.UpdateWithdrawalStatusTx(ctx, tx, withdrawal.WithdrawalID, domain.WithdrawalStatusProcessing); err != nil {
+		return fmt.Errorf("failed to mark withdrawal %s as processing: %w", withdrawal.WithdrawalID, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction for withdrawal %s: %w", withdrawal.WithdrawalID, err)
+	}
+
+	withdrawal.Status = domain.WithdrawalStatusProcessing
+	s.wsHub.BroadcastWithdrawal(withdrawal)
+
+	existingTx, err := s.transactionRepo.GetByWithdrawalID(ctx, withdrawal.WithdrawalID)
+	if err == nil && existingTx.ID != "" && existingTx.WithdrawalID == withdrawal.WithdrawalID {
+		s.logger.Info().
+			Str("withdrawal_id", withdrawal.WithdrawalID).
+			Str("tx_id", existingTx.ID).
+			Msg("Withdrawal already has a transaction, skipping verification")
+		return nil
+	}
+
 	if withdrawal.TxHash == "" {
 		s.logger.Warn().
 			Str("withdrawal_id", withdrawal.WithdrawalID).
-			Msg("No transaction hash for withdrawal, verification skipped")
-		return nil
+			Msg("No transaction hash for withdrawal, marking as failed")
+		return s.markWithdrawalFailed(ctx, withdrawal, "No transaction hash provided")
 	}
 
 	tokenType, err := mapCryptoToSPLTokenType(withdrawal.CryptoCurrency)
@@ -349,7 +481,7 @@ func (s *verificationService) verifySolanaWithdrawal(ctx context.Context, withdr
 	params := rpc.VerifyWithdrawalParams{
 		TxHash:      withdrawal.TxHash,
 		ToAddress:   withdrawal.ToAddress,
-		Amount:      amount, // Already in decimal form (e.g., 3.0 USDC)
+		Amount:      amount,
 		TokenType:   tokenType,
 		ClusterType: clusterType,
 	}
@@ -360,9 +492,33 @@ func (s *verificationService) verifySolanaWithdrawal(ctx context.Context, withdr
 		isVerified, transaction, err := s.heliusClient.VerifyWithdrawal(ctx, params)
 		if err == nil {
 			if isVerified {
-				return s.processVerifiedWithdrawal(ctx, withdrawal, transaction)
+				existingTx, txErr := s.transactionRepo.GetByWithdrawalID(ctx, withdrawal.WithdrawalID)
+				if txErr == nil && existingTx.ID != "" && existingTx.WithdrawalID == withdrawal.WithdrawalID {
+					s.logger.Info().
+						Str("withdrawal_id", withdrawal.WithdrawalID).
+						Str("tx_id", existingTx.ID).
+						Msg("Withdrawal transaction created during verification, skipping")
+					return nil
+				}
+				if processErr := s.processVerifiedWithdrawal(ctx, withdrawal, transaction); processErr != nil {
+					if strings.Contains(processErr.Error(), "duplicate key value violates unique constraint") {
+						s.logger.Info().
+							Str("withdrawal_id", withdrawal.WithdrawalID).
+							Str("tx_hash", transaction.Signature).
+							Msg("Transaction already created by another process, skipping")
+						return nil
+					}
+					if resetErr := s.withdrawalRepo.UpdateWithdrawalStatus(ctx, withdrawal.WithdrawalID, domain.WithdrawalStatusPending, fmt.Sprintf("Processing failed: %v", processErr)); resetErr != nil {
+						s.logger.Error().
+							Str("withdrawal_id", withdrawal.WithdrawalID).
+							Err(resetErr).
+							Msg("Failed to reset withdrawal to pending after processing error")
+					}
+					return fmt.Errorf("failed to process verified withdrawal %s: %w", withdrawal.WithdrawalID, processErr)
+				}
+				return nil
 			}
-			s.logger.Info().
+			s.logger.Warn().
 				Str("withdrawal_id", withdrawal.WithdrawalID).
 				Int("attempt", attempt).
 				Msg("No matching transaction found")
@@ -381,13 +537,32 @@ func (s *verificationService) verifySolanaWithdrawal(ctx context.Context, withdr
 					continue
 				}
 			}
-			return s.markWithdrawalFailed(ctx, withdrawal, fmt.Sprintf("Failed to verify after %d attempts: %v", maxRetries+1, err))
+			if resetErr := s.withdrawalRepo.UpdateWithdrawalStatus(ctx, withdrawal.WithdrawalID, domain.WithdrawalStatusPending, fmt.Sprintf("Verification failed: %v", err)); resetErr != nil {
+				s.logger.Error().
+					Str("withdrawal_id", withdrawal.WithdrawalID).
+					Err(resetErr).
+					Msg("Failed to reset withdrawal to pending")
+			}
+			return fmt.Errorf("failed to verify withdrawal %s after %d attempts: %w", withdrawal.WithdrawalID, maxRetries+1, err)
 		}
+	}
+	if resetErr := s.withdrawalRepo.UpdateWithdrawalStatus(ctx, withdrawal.WithdrawalID, domain.WithdrawalStatusPending, "No matching transaction found"); resetErr != nil {
+		s.logger.Error().
+			Str("withdrawal_id", withdrawal.WithdrawalID).
+			Err(resetErr).
+			Msg("Failed to reset withdrawal to pending")
 	}
 	return nil
 }
 
 func (s *verificationService) markWithdrawalFailed(ctx context.Context, withdrawal domain.Withdrawal, reason string) error {
+	if withdrawal.Status == domain.WithdrawalStatusFailed {
+		s.logger.Info().
+			Str("withdrawal_id", withdrawal.WithdrawalID).
+			Msg("Withdrawal already marked as failed, skipping")
+		return nil
+	}
+
 	withdrawal.Status = domain.WithdrawalStatusFailed
 	withdrawal.UpdatedAt = time.Now()
 	if err := s.withdrawalRepo.UpdateWithdrawal(ctx, withdrawal); err != nil {
@@ -418,14 +593,14 @@ func (s *verificationService) markWithdrawalFailed(ctx context.Context, withdraw
 			if logErr := s.balanceRepo.LogBalanceChange(ctx, releaseLog); logErr != nil {
 				s.logger.Err(logErr).Msg("Failed to log balance release")
 			}
-		}
-		withdrawal.ReservationReleased = true
-		withdrawal.ReservationReleasedAt = time.Now()
-		if err := s.withdrawalRepo.UpdateWithdrawal(ctx, withdrawal); err != nil {
-			s.logger.Error().
-				Str("withdrawal_id", withdrawal.WithdrawalID).
-				Err(err).
-				Msg("Failed to update withdrawal after releasing balance")
+			withdrawal.ReservationReleased = true
+			withdrawal.ReservationReleasedAt = time.Now()
+			if err := s.withdrawalRepo.UpdateWithdrawal(ctx, withdrawal); err != nil {
+				s.logger.Error().
+					Str("withdrawal_id", withdrawal.WithdrawalID).
+					Err(err).
+					Msg("Failed to update withdrawal after releasing balance")
+			}
 		}
 	}
 
@@ -481,6 +656,16 @@ func (s *verificationService) processVerifiedDeposit(ctx context.Context, sessio
 		return fmt.Errorf("no matching transaction found despite verification for session %s", session.SessionID)
 	}
 
+	existingTx, err := s.transactionRepo.GetByHash(ctx, session.ChainID, matchedTx.Signature)
+	if err == nil && existingTx.ID != "" && existingTx.DepositSessionID == session.SessionID {
+		s.logger.Info().
+			Str("session_id", session.SessionID).
+			Str("tx_id", existingTx.ID).
+			Str("tx_hash", matchedTx.Signature).
+			Msg("Transaction already exists for session, skipping processing")
+		return nil
+	}
+
 	usdAmountCents := s.currencyUtils.CryptoToUSDCents(txAmount, exchangeRate)
 
 	tx := domain.Transaction{
@@ -525,7 +710,7 @@ func (s *verificationService) processVerifiedDeposit(ctx context.Context, sessio
 		return fmt.Errorf("failed to create transaction record for session %s: %w", session.SessionID, err)
 	}
 
-	balance, err := s.balanceRepo.GetBalance(ctx, session.UserID, "USD")
+	balance, err := s.balanceRepo.GetBalance(ctx, session.UserID)
 	if err != nil {
 		return fmt.Errorf("failed to get balance for user %s: %w", session.UserID, err)
 	}
@@ -581,6 +766,16 @@ func (s *verificationService) processVerifiedDeposit(ctx context.Context, sessio
 }
 
 func (s *verificationService) processVerifiedWithdrawal(ctx context.Context, withdrawal domain.Withdrawal, transaction domain.HeliusTransaction) error {
+	existingTx, err := s.transactionRepo.GetByHash(ctx, withdrawal.ChainID, transaction.Signature)
+	if err == nil && existingTx.ID != "" && existingTx.WithdrawalID == withdrawal.WithdrawalID {
+		s.logger.Info().
+			Str("withdrawal_id", withdrawal.WithdrawalID).
+			Str("tx_id", existingTx.ID).
+			Str("tx_hash", transaction.Signature).
+			Msg("Transaction already exists for withdrawal, skipping processing")
+		return nil
+	}
+
 	metadata, err := json.Marshal(transaction)
 	if err != nil {
 		s.logger.Error().
@@ -629,7 +824,7 @@ func (s *verificationService) processVerifiedWithdrawal(ctx context.Context, wit
 		return fmt.Errorf("failed to create transaction record for withdrawal %s: %w", withdrawal.WithdrawalID, err)
 	}
 
-	balance, err := s.balanceRepo.GetBalance(ctx, withdrawal.UserID, "USD")
+	balance, err := s.balanceRepo.GetBalance(ctx, withdrawal.UserID)
 	if err != nil {
 		return fmt.Errorf("failed to get balance for user %s: %w", withdrawal.UserID, err)
 	}

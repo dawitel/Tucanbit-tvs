@@ -582,6 +582,7 @@ type Withdrawals struct {
 	ReservationReleased   sql.NullBool          `json:"reservation_released"`
 	ReservationReleasedAt sql.NullTime          `json:"reservation_released_at"`
 	Metadata              pqtype.NullRawMessage `json:"metadata"`
+	ErrorMessage          sql.NullString        `json:"error_message"`
 	CreatedAt             sql.NullTime          `json:"created_at"`
 	UpdatedAt             sql.NullTime          `json:"updated_at"`
 }

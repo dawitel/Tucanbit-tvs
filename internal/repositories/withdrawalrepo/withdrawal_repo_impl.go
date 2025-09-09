@@ -100,3 +100,61 @@ func (r *WithdrawalRepository) LoadPendingWithdrawals(ctx context.Context, limit
 	}
 	return withdrawals, nil
 }
+
+func (r *WithdrawalRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTx(ctx, nil)
+}
+func (r *WithdrawalRepository) GetByWithdrawalIDTx(ctx context.Context, tx *sql.Tx, withdrawalId string) (*domain.Withdrawal, error) {
+	txStore := r.queries.WithTx(tx)
+	dbWithdrawal, err := txStore.GetWithdrawalByID(ctx, withdrawalId)
+	if err != nil {
+		return nil, err
+	}
+
+	withdrawal := mapDBWithdrawalToDomain(dbWithdrawal)
+	return withdrawal, nil
+}
+
+func mapDBWithdrawalToDomain(dbWithdrawal gen.Withdrawal) *domain.Withdrawal {
+	return &domain.Withdrawal{
+		ID:                    dbWithdrawal.ID.String(),
+		UserID:                dbWithdrawal.UserID.String(),
+		AdminID:               dbWithdrawal.AdminID.UUID.String(),
+		WithdrawalID:          dbWithdrawal.WithdrawalID,
+		ChainID:               dbWithdrawal.ChainID,
+		Network:               dbWithdrawal.Network,
+		CryptoCurrency:        dbWithdrawal.CryptoCurrency,
+		USDAmountCents:        dbWithdrawal.UsdAmountCents,
+		CryptoAmount:          dbWithdrawal.CryptoAmount,
+		ExchangeRate:          dbWithdrawal.ExchangeRate,
+		FeeCents:              dbWithdrawal.FeeCents,
+		ToAddress:             dbWithdrawal.ToAddress,
+		TxHash:                dbWithdrawal.TxHash.String,
+		Status:                domain.WithdrawalStatus(dbWithdrawal.Status),
+		RequiresAdminReview:   dbWithdrawal.RequiresAdminReview,
+		AdminReviewDeadline:   dbWithdrawal.AdminReviewDeadline.Time,
+		ProcessedBySystem:     dbWithdrawal.ProcessedBySystem.Bool,
+		SourceWalletAddress:   dbWithdrawal.SourceWalletAddress,
+		AmountReservedCents:   dbWithdrawal.AmountReservedCents,
+		ReservationReleased:   dbWithdrawal.ReservationReleased.Bool,
+		ReservationReleasedAt: dbWithdrawal.ReservationReleasedAt.Time,
+		CreatedAt:             dbWithdrawal.CreatedAt.Time,
+		UpdatedAt:             dbWithdrawal.UpdatedAt.Time,
+	}
+}
+
+func (r *WithdrawalRepository) UpdateWithdrawalStatusTx(ctx context.Context, tx *sql.Tx, withdrawalId string, status domain.WithdrawalStatus) error {
+	txStore := r.queries.WithTx(tx)
+	return txStore.UpdateWithdrawal(ctx, gen.UpdateWithdrawalParams{
+		WithdrawalID: withdrawalId,
+		Status:       gen.WithdrawalStatus(status),
+	})
+}
+
+func (r *WithdrawalRepository) UpdateWithdrawalStatus(ctx context.Context, withdrawalId string, status domain.WithdrawalStatus, errorMessage string) error {
+	return r.queries.UpdateWithdrawal(ctx, gen.UpdateWithdrawalParams{
+		WithdrawalID: withdrawalId,
+		Status:       gen.WithdrawalStatus(status),
+		ErrorMessage: sql.NullString{String: errorMessage, Valid: errorMessage != ""},
+	})
+}

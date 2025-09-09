@@ -173,5 +173,22 @@ UPDATE withdrawals
 SET
     tx_hash = COALESCE($1, tx_hash),
     status = COALESCE($2, status),
+    error_message = COALESCE($3, error_message),
     updated_at = CURRENT_TIMESTAMP
-WHERE withdrawal_id = $3;
+WHERE withdrawal_id = $4;
+
+-- name: GetTransactionByDepositSessionID :one
+SELECT * FROM transactions
+WHERE deposit_session_id = $1;
+
+-- name: GetTransactionByWithdrawalID :one
+SELECT * FROM transactions
+WHERE withdrawal_id = $1;
+
+-- name: GetDepositSessionByID :one
+SELECT * FROM deposit_sessions
+WHERE session_id = $1;
+
+-- name: GetWithdrawalByID :one
+SELECT * FROM withdrawals
+WHERE withdrawal_id = $1;

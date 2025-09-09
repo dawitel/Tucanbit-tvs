@@ -2,6 +2,7 @@ package authservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -129,5 +130,23 @@ func (s *AuthService) SaveUserSession(ctx context.Context, session *domain.UserS
 		s.logger.Error().Err(err).Str("user_id", session.UserID.String()).Msg("Failed to save user session")
 		return fmt.Errorf("failed to save user session: %v", err)
 	}
+	return nil
+}
+
+func (s *AuthService) VerifyAPIKey(ctx context.Context, apiKey string) error {
+	if apiKey == "" {
+		return errors.New("invalid API key")
+	}
+
+	// apiKeyRecord, err := s.authRepo.GetAPIKey(ctx, apiKey)
+	// if err != nil {
+	// 	s.logger.Error().Err(err).Str("api_key", apiKey).Msg("Failed to get API key")
+	// 	return fmt.Errorf("failed to get API key: %v", err)
+	// }
+
+	// if apiKeyRecord == nil {
+	// 	return errors.New("invalid API key")
+	// }
+
 	return nil
 }

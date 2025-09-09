@@ -63,7 +63,7 @@ func (r *BalanceRepository) GetUserBalances(ctx context.Context, userID string) 
 	return result, nil
 }
 
-func (r *BalanceRepository) GetBalance(ctx context.Context, userID, currencyCode string) (*domain.Balance, error) {
+func (r *BalanceRepository) GetBalance(ctx context.Context, userID string) (*domain.Balance, error) {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user_id format: %v", err)
@@ -71,7 +71,7 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userID, currencyCode
 
 	balance, err := r.store.GetBalance(ctx, gen.GetBalanceParams{
 		UserID:       userUUID,
-		CurrencyCode: currencyCode,
+		CurrencyCode: "USD",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get balance: %v", err)
@@ -93,7 +93,7 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userID, currencyCode
 	return &domain.Balance{
 		ID:            balance.ID.String(),
 		UserID:        balance.UserID.String(),
-		CurrencyCode:  balance.CurrencyCode,
+		CurrencyCode:  "USD",
 		AmountCents:   amountCents,
 		AmountUnits:   balance.AmountUnits.String,
 		ReservedCents: reservedCents,

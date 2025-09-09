@@ -59,7 +59,7 @@ func (r *transactionRepository) Create(ctx context.Context, tx domain.Transactio
 	err := r.store.CreateTransaction(ctx, params)
 	if err != nil {
 		r.logger.Error().Err(err).Str("tx_hash", tx.TxHash).Msg("Failed to create transaction")
-		return fmt.Errorf("failed to create transaction: %w", err)
+		return err
 	}
 
 	return nil
@@ -77,7 +77,7 @@ func (r *transactionRepository) GetByHash(ctx context.Context, chainID, txHash s
 			return domain.Transaction{}, nil
 		}
 		r.logger.Error().Err(err).Str("chain_id", chainID).Str("tx_hash", txHash).Msg("Failed to get transaction by hash")
-		return domain.Transaction{}, fmt.Errorf("failed to get transaction by hash: %w", err)
+		return domain.Transaction{}, err
 	}
 
 	return r.mapToDomainTransaction(txRow), nil
@@ -90,7 +90,7 @@ func (r *transactionRepository) GetByID(ctx context.Context, id string) (domain.
 			return domain.Transaction{}, nil
 		}
 		r.logger.Error().Err(err).Str("id", id).Msg("Failed to get transaction by ID")
-		return domain.Transaction{}, fmt.Errorf("failed to get transaction by ID: %w", err)
+		return domain.Transaction{}, err
 	}
 
 	return r.mapToDomainTransaction(txRow), nil
@@ -151,7 +151,7 @@ func (r *transactionRepository) UpdateStatus(ctx context.Context, id string, sta
 	_, err = r.store.UpdateTransactionStatus(ctx, params)
 	if err != nil {
 		r.logger.Error().Err(err).Str("id", id).Str("status", string(status)).Msg("Failed to update transaction status")
-		return fmt.Errorf("failed to update transaction status: %w", err)
+		return err
 	}
 
 	return nil
@@ -168,7 +168,7 @@ func (r *transactionRepository) GetByAddress(ctx context.Context, chainID, addre
 	rows, err := r.store.GetTransactionsByAddress(ctx, params)
 	if err != nil {
 		r.logger.Error().Err(err).Str("chain_id", chainID).Str("address", address).Msg("Failed to get transactions by address")
-		return nil, fmt.Errorf("failed to get transactions by address: %w", err)
+		return nil, err
 	}
 
 	transactions := make([]domain.Transaction, 0, len(rows))
@@ -183,7 +183,7 @@ func (r *transactionRepository) GetPendingTransactions(ctx context.Context, limi
 	rows, err := r.store.GetPendingTransactions(ctx, int32(limit))
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Failed to get pending transactions")
-		return nil, fmt.Errorf("failed to get pending transactions: %w", err)
+		return nil, err
 	}
 
 	transactions := make([]domain.Transaction, 0, len(rows))
@@ -204,7 +204,7 @@ func (r *transactionRepository) GetTransactionsByStatus(ctx context.Context, sta
 	rows, err := r.store.GetTransactionsByStatus(ctx, params)
 	if err != nil {
 		r.logger.Error().Err(err).Str("status", string(status)).Msg("Failed to get transactions by status")
-		return nil, fmt.Errorf("failed to get transactions by status: %w", err)
+		return nil, err
 	}
 
 	transactions := make([]domain.Transaction, 0, len(rows))
@@ -213,6 +213,26 @@ func (r *transactionRepository) GetTransactionsByStatus(ctx context.Context, sta
 	}
 
 	return transactions, nil
+}
+
+func (r *transactionRepository) GetByDepositSessionID(ctx context.Context, sessionID string) (domain.Transaction, error) {
+	txRow, err := r.store.GetTransactionByDepositSessionID(ctx, sql.NullString{String: sessionID, Valid: true})
+	if err != nil {
+		r.logger.Error().Err(err).Str("sessionID", sessionID).Msg("Failed to get transaction by deposit session ID")
+		return domain.Transaction{}, err
+	}
+
+	return r.mapToDomainTransaction(txRow), nil
+}
+
+func (r *transactionRepository) GetByWithdrawalID(ctx context.Context, withdrawalID string) (domain.Transaction, error) {
+	txRow, err := r.store.GetTransactionByWithdrawalID(ctx, sql.NullString{String: withdrawalID, Valid: true})
+	if err != nil {
+		r.logger.Error().Err(err).Str("withdrawalID", withdrawalID).Msg("Failed to get transaction by withdrawal ID")
+		return domain.Transaction{}, err
+	}
+
+	return r.mapToDomainTransaction(txRow), nil
 }
 
 func (r *transactionRepository) mapToDomainTransaction(txRow transactionRepo.Transactions) domain.Transaction {

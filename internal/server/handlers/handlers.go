@@ -35,8 +35,14 @@ func (h *Handlers) SetupHandlers(router *gin.Engine) {
 	healthHandler := NewHealthHandler()
 	sessionStatusHandler := NewSessionStatusHandler(h.WsHub, h.Logger)
 	webhookHandler := NewWebhookHandler(h.VerificationSvc, h.Logger)
+	messageHandler := NewMessageHandler(h.WsHub)
 
 	router.GET("/health", healthHandler.Health)
+
+	esRoute := router.Group("/tvs/api/es").Use(m.APIKeyMiddleware())
+	{
+		esRoute.POST("/messages/send", messageHandler.HandleMessage)
+	}
 
 	v1 := router.Group("/tvs/api/v1").Use(m.AuthMiddleware())
 	{

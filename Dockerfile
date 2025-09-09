@@ -32,7 +32,7 @@ COPY --from=builder /app/db ./db
 COPY --from=builder /app/.env .
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8085
 
 # Run the binary
 CMD ["./main"]

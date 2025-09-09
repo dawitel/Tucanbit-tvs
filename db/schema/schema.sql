@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS withdrawals (
     reservation_released BOOLEAN DEFAULT FALSE,
     reservation_released_at TIMESTAMP WITH TIME ZONE,
     metadata JSONB,
+    error_message TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

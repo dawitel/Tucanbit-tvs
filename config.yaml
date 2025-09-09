@@ -1,11 +1,11 @@
 server:
-  host: localhost
-  port: 8081
-  environment: development
+  host: 0.0.0.0
+  port: 8085
+  environment: production
 
 database:
-  host: "localhost"
-  port: 5433
+  host: "tucanbit-db"
+  port: 5432
   name: "tucanbit"
   user: "tucanbit"
   password: "5kj0YmV5FKKpU9D50B7yH5A"
@@ -39,7 +39,7 @@ mint_addresses:
 
 verification:
   session_timeout_hours: 4
-  polling_interval: 30
+  polling_interval: 10
   concurrent_workers: 10
   cache_enabled: true
   cache_ttl: 5m

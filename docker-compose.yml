@@ -4,8 +4,10 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_HOST: host.docker.internal
-      DATABASE_PORT: 5433
+      DATABASE_HOST: tucanbit-db
+      DATABASE_PORT: 5432
+      DB_HOST: tucanbit-db
+      DB_PORT: 5432
       DATABASE_NAME: tucanbit
       DATABASE_USER: tucanbit
       DATABASE_PASSWORD: 5kj0YmV5FKKpU9D50B7yH5A
@@ -14,9 +16,7 @@ services:
       DATABASE_MAX_IDLE_CONNECTIONS: 10
       DATABASE_IDLE_CONN_TIMEOUT: 4m
     ports:
-      - "8081:8080"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "8085:8085"
     volumes:
       - ./configs:/root/configs:ro
     healthcheck:
@@ -27,7 +27,7 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost:8080/health",
+          "http://localhost:8085/health",
         ]
       interval: 30s
       timeout: 10s

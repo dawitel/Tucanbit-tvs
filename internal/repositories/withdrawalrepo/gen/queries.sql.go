@@ -148,6 +148,34 @@ func (q *Queries) GetBalance(ctx context.Context, arg GetBalanceParams) (Balance
 	return i, err
 }
 
+const getDepositSessionByID = `-- name: GetDepositSessionByID :one
+SELECT id, session_id, user_id, chain_id, network, wallet_address, amount, crypto_currency, status, qr_code_data, payment_link, metadata, error_message, created_at, updated_at FROM deposit_sessions
+WHERE session_id = $1
+`
+
+func (q *Queries) GetDepositSessionByID(ctx context.Context, sessionID string) (DepositSession, error) {
+	row := q.db.QueryRowContext(ctx, getDepositSessionByID, sessionID)
+	var i DepositSession
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.UserID,
+		&i.ChainID,
+		&i.Network,
+		&i.WalletAddress,
+		&i.Amount,
+		&i.CryptoCurrency,
+		&i.Status,
+		&i.QrCodeData,
+		&i.PaymentLink,
+		&i.Metadata,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getPendingTransactions = `-- name: GetPendingTransactions :many
 SELECT
     id, deposit_session_id, withdrawal_id, chain_id, network, crypto_currency,
@@ -206,6 +234,43 @@ func (q *Queries) GetPendingTransactions(ctx context.Context, limit int32) ([]Tr
 		return nil, err
 	}
 	return items, nil
+}
+
+const getTransactionByDepositSessionID = `-- name: GetTransactionByDepositSessionID :one
+SELECT id, deposit_session_id, withdrawal_id, chain_id, network, crypto_currency, tx_hash, from_address, to_address, amount, usd_amount_cents, exchange_rate, fee, block_number, block_hash, status, confirmations, timestamp, verified_at, processor, transaction_type, metadata, created_at, updated_at FROM transactions
+WHERE deposit_session_id = $1
+`
+
+func (q *Queries) GetTransactionByDepositSessionID(ctx context.Context, depositSessionID sql.NullString) (Transaction, error) {
+	row := q.db.QueryRowContext(ctx, getTransactionByDepositSessionID, depositSessionID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.DepositSessionID,
+		&i.WithdrawalID,
+		&i.ChainID,
+		&i.Network,
+		&i.CryptoCurrency,
+		&i.TxHash,
+		&i.FromAddress,
+		&i.ToAddress,
+		&i.Amount,
+		&i.UsdAmountCents,
+		&i.ExchangeRate,
+		&i.Fee,
+		&i.BlockNumber,
+		&i.BlockHash,
+		&i.Status,
+		&i.Confirmations,
+		&i.Timestamp,
+		&i.VerifiedAt,
+		&i.Processor,
+		&i.TransactionType,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getTransactionByHash = `-- name: GetTransactionByHash :one
@@ -267,6 +332,43 @@ WHERE id = $1
 
 func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transaction, error) {
 	row := q.db.QueryRowContext(ctx, getTransactionByID, id)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.DepositSessionID,
+		&i.WithdrawalID,
+		&i.ChainID,
+		&i.Network,
+		&i.CryptoCurrency,
+		&i.TxHash,
+		&i.FromAddress,
+		&i.ToAddress,
+		&i.Amount,
+		&i.UsdAmountCents,
+		&i.ExchangeRate,
+		&i.Fee,
+		&i.BlockNumber,
+		&i.BlockHash,
+		&i.Status,
+		&i.Confirmations,
+		&i.Timestamp,
+		&i.VerifiedAt,
+		&i.Processor,
+		&i.TransactionType,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getTransactionByWithdrawalID = `-- name: GetTransactionByWithdrawalID :one
+SELECT id, deposit_session_id, withdrawal_id, chain_id, network, crypto_currency, tx_hash, from_address, to_address, amount, usd_amount_cents, exchange_rate, fee, block_number, block_hash, status, confirmations, timestamp, verified_at, processor, transaction_type, metadata, created_at, updated_at FROM transactions
+WHERE withdrawal_id = $1
+`
+
+func (q *Queries) GetTransactionByWithdrawalID(ctx context.Context, withdrawalID sql.NullString) (Transaction, error) {
+	row := q.db.QueryRowContext(ctx, getTransactionByWithdrawalID, withdrawalID)
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
@@ -510,6 +612,44 @@ func (q *Queries) GetUserBalances(ctx context.Context, userID uuid.UUID) ([]Bala
 	return items, nil
 }
 
+const getWithdrawalByID = `-- name: GetWithdrawalByID :one
+SELECT id, user_id, admin_id, withdrawal_id, chain_id, network, crypto_currency, usd_amount_cents, crypto_amount, exchange_rate, fee_cents, to_address, tx_hash, status, requires_admin_review, admin_review_deadline, processed_by_system, source_wallet_address, amount_reserved_cents, reservation_released, reservation_released_at, metadata, error_message, created_at, updated_at FROM withdrawals
+WHERE withdrawal_id = $1
+`
+
+func (q *Queries) GetWithdrawalByID(ctx context.Context, withdrawalID string) (Withdrawal, error) {
+	row := q.db.QueryRowContext(ctx, getWithdrawalByID, withdrawalID)
+	var i Withdrawal
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AdminID,
+		&i.WithdrawalID,
+		&i.ChainID,
+		&i.Network,
+		&i.CryptoCurrency,
+		&i.UsdAmountCents,
+		&i.CryptoAmount,
+		&i.ExchangeRate,
+		&i.FeeCents,
+		&i.ToAddress,
+		&i.TxHash,
+		&i.Status,
+		&i.RequiresAdminReview,
+		&i.AdminReviewDeadline,
+		&i.ProcessedBySystem,
+		&i.SourceWalletAddress,
+		&i.AmountReservedCents,
+		&i.ReservationReleased,
+		&i.ReservationReleasedAt,
+		&i.Metadata,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listPendingDepositSessions = `-- name: ListPendingDepositSessions :many
 SELECT id, session_id, user_id, chain_id, network, wallet_address, amount, crypto_currency, status, qr_code_data, payment_link, metadata, error_message, created_at, updated_at FROM deposit_sessions
 WHERE status = 'pending'
@@ -562,7 +702,7 @@ func (q *Queries) ListPendingDepositSessions(ctx context.Context, arg ListPendin
 }
 
 const listPendingWithdrawals = `-- name: ListPendingWithdrawals :many
-SELECT id, user_id, admin_id, withdrawal_id, chain_id, network, crypto_currency, usd_amount_cents, crypto_amount, exchange_rate, fee_cents, to_address, tx_hash, status, requires_admin_review, admin_review_deadline, processed_by_system, source_wallet_address, amount_reserved_cents, reservation_released, reservation_released_at, metadata, created_at, updated_at FROM withdrawals
+SELECT id, user_id, admin_id, withdrawal_id, chain_id, network, crypto_currency, usd_amount_cents, crypto_amount, exchange_rate, fee_cents, to_address, tx_hash, status, requires_admin_review, admin_review_deadline, processed_by_system, source_wallet_address, amount_reserved_cents, reservation_released, reservation_released_at, metadata, error_message, created_at, updated_at FROM withdrawals
 WHERE status = 'pending'
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -605,6 +745,7 @@ func (q *Queries) ListPendingWithdrawals(ctx context.Context, arg ListPendingWit
 			&i.ReservationReleased,
 			&i.ReservationReleasedAt,
 			&i.Metadata,
+			&i.ErrorMessage,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -855,17 +996,24 @@ UPDATE withdrawals
 SET
     tx_hash = COALESCE($1, tx_hash),
     status = COALESCE($2, status),
+    error_message = COALESCE($3, error_message),
     updated_at = CURRENT_TIMESTAMP
-WHERE withdrawal_id = $3
+WHERE withdrawal_id = $4
 `
 
 type UpdateWithdrawalParams struct {
 	TxHash       sql.NullString   `json:"tx_hash"`
 	Status       WithdrawalStatus `json:"status"`
+	ErrorMessage sql.NullString   `json:"error_message"`
 	WithdrawalID string           `json:"withdrawal_id"`
 }
 
 func (q *Queries) UpdateWithdrawal(ctx context.Context, arg UpdateWithdrawalParams) error {
-	_, err := q.db.ExecContext(ctx, updateWithdrawal, arg.TxHash, arg.Status, arg.WithdrawalID)
+	_, err := q.db.ExecContext(ctx, updateWithdrawal,
+		arg.TxHash,
+		arg.Status,
+		arg.ErrorMessage,
+		arg.WithdrawalID,
+	)
 	return err
 }

@@ -36,14 +36,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBalanceStmt, err = db.PrepareContext(ctx, GetBalance); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBalance: %w", err)
 	}
+	if q.getDepositSessionByIDStmt, err = db.PrepareContext(ctx, GetDepositSessionByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDepositSessionByID: %w", err)
+	}
 	if q.getPendingTransactionsStmt, err = db.PrepareContext(ctx, GetPendingTransactions); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPendingTransactions: %w", err)
+	}
+	if q.getTransactionByDepositSessionIDStmt, err = db.PrepareContext(ctx, GetTransactionByDepositSessionID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTransactionByDepositSessionID: %w", err)
 	}
 	if q.getTransactionByHashStmt, err = db.PrepareContext(ctx, GetTransactionByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTransactionByHash: %w", err)
 	}
 	if q.getTransactionByIDStmt, err = db.PrepareContext(ctx, GetTransactionByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTransactionByID: %w", err)
+	}
+	if q.getTransactionByWithdrawalIDStmt, err = db.PrepareContext(ctx, GetTransactionByWithdrawalID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTransactionByWithdrawalID: %w", err)
 	}
 	if q.getTransactionStatsStmt, err = db.PrepareContext(ctx, GetTransactionStats); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTransactionStats: %w", err)
@@ -56,6 +65,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getUserBalancesStmt, err = db.PrepareContext(ctx, GetUserBalances); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserBalances: %w", err)
+	}
+	if q.getWithdrawalByIDStmt, err = db.PrepareContext(ctx, GetWithdrawalByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetWithdrawalByID: %w", err)
 	}
 	if q.listPendingDepositSessionsStmt, err = db.PrepareContext(ctx, ListPendingDepositSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPendingDepositSessions: %w", err)
@@ -112,9 +124,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getBalanceStmt: %w", cerr)
 		}
 	}
+	if q.getDepositSessionByIDStmt != nil {
+		if cerr := q.getDepositSessionByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDepositSessionByIDStmt: %w", cerr)
+		}
+	}
 	if q.getPendingTransactionsStmt != nil {
 		if cerr := q.getPendingTransactionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPendingTransactionsStmt: %w", cerr)
+		}
+	}
+	if q.getTransactionByDepositSessionIDStmt != nil {
+		if cerr := q.getTransactionByDepositSessionIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTransactionByDepositSessionIDStmt: %w", cerr)
 		}
 	}
 	if q.getTransactionByHashStmt != nil {
@@ -125,6 +147,11 @@ func (q *Queries) Close() error {
 	if q.getTransactionByIDStmt != nil {
 		if cerr := q.getTransactionByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTransactionByIDStmt: %w", cerr)
+		}
+	}
+	if q.getTransactionByWithdrawalIDStmt != nil {
+		if cerr := q.getTransactionByWithdrawalIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTransactionByWithdrawalIDStmt: %w", cerr)
 		}
 	}
 	if q.getTransactionStatsStmt != nil {
@@ -145,6 +172,11 @@ func (q *Queries) Close() error {
 	if q.getUserBalancesStmt != nil {
 		if cerr := q.getUserBalancesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserBalancesStmt: %w", cerr)
+		}
+	}
+	if q.getWithdrawalByIDStmt != nil {
+		if cerr := q.getWithdrawalByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getWithdrawalByIDStmt: %w", cerr)
 		}
 	}
 	if q.listPendingDepositSessionsStmt != nil {
@@ -234,55 +266,63 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                             DBTX
-	tx                             *sql.Tx
-	completeDepositSessionStmt     *sql.Stmt
-	createTransactionStmt          *sql.Stmt
-	deleteTransactionStmt          *sql.Stmt
-	getBalanceStmt                 *sql.Stmt
-	getPendingTransactionsStmt     *sql.Stmt
-	getTransactionByHashStmt       *sql.Stmt
-	getTransactionByIDStmt         *sql.Stmt
-	getTransactionStatsStmt        *sql.Stmt
-	getTransactionsByAddressStmt   *sql.Stmt
-	getTransactionsByStatusStmt    *sql.Stmt
-	getUserBalancesStmt            *sql.Stmt
-	listPendingDepositSessionsStmt *sql.Stmt
-	listPendingWithdrawalsStmt     *sql.Stmt
-	logBalanceChangeStmt           *sql.Stmt
-	releaseReservedBalanceStmt     *sql.Stmt
-	reserveBalanceStmt             *sql.Stmt
-	updateBalanceStmt              *sql.Stmt
-	updateDepositSessionStatusStmt *sql.Stmt
-	updateTransactionStmt          *sql.Stmt
-	updateTransactionStatusStmt    *sql.Stmt
-	updateWithdrawalStmt           *sql.Stmt
+	db                                   DBTX
+	tx                                   *sql.Tx
+	completeDepositSessionStmt           *sql.Stmt
+	createTransactionStmt                *sql.Stmt
+	deleteTransactionStmt                *sql.Stmt
+	getBalanceStmt                       *sql.Stmt
+	getDepositSessionByIDStmt            *sql.Stmt
+	getPendingTransactionsStmt           *sql.Stmt
+	getTransactionByDepositSessionIDStmt *sql.Stmt
+	getTransactionByHashStmt             *sql.Stmt
+	getTransactionByIDStmt               *sql.Stmt
+	getTransactionByWithdrawalIDStmt     *sql.Stmt
+	getTransactionStatsStmt              *sql.Stmt
+	getTransactionsByAddressStmt         *sql.Stmt
+	getTransactionsByStatusStmt          *sql.Stmt
+	getUserBalancesStmt                  *sql.Stmt
+	getWithdrawalByIDStmt                *sql.Stmt
+	listPendingDepositSessionsStmt       *sql.Stmt
+	listPendingWithdrawalsStmt           *sql.Stmt
+	logBalanceChangeStmt                 *sql.Stmt
+	releaseReservedBalanceStmt           *sql.Stmt
+	reserveBalanceStmt                   *sql.Stmt
+	updateBalanceStmt                    *sql.Stmt
+	updateDepositSessionStatusStmt       *sql.Stmt
+	updateTransactionStmt                *sql.Stmt
+	updateTransactionStatusStmt          *sql.Stmt
+	updateWithdrawalStmt                 *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                             tx,
-		tx:                             tx,
-		completeDepositSessionStmt:     q.completeDepositSessionStmt,
-		createTransactionStmt:          q.createTransactionStmt,
-		deleteTransactionStmt:          q.deleteTransactionStmt,
-		getBalanceStmt:                 q.getBalanceStmt,
-		getPendingTransactionsStmt:     q.getPendingTransactionsStmt,
-		getTransactionByHashStmt:       q.getTransactionByHashStmt,
-		getTransactionByIDStmt:         q.getTransactionByIDStmt,
-		getTransactionStatsStmt:        q.getTransactionStatsStmt,
-		getTransactionsByAddressStmt:   q.getTransactionsByAddressStmt,
-		getTransactionsByStatusStmt:    q.getTransactionsByStatusStmt,
-		getUserBalancesStmt:            q.getUserBalancesStmt,
-		listPendingDepositSessionsStmt: q.listPendingDepositSessionsStmt,
-		listPendingWithdrawalsStmt:     q.listPendingWithdrawalsStmt,
-		logBalanceChangeStmt:           q.logBalanceChangeStmt,
-		releaseReservedBalanceStmt:     q.releaseReservedBalanceStmt,
-		reserveBalanceStmt:             q.reserveBalanceStmt,
-		updateBalanceStmt:              q.updateBalanceStmt,
-		updateDepositSessionStatusStmt: q.updateDepositSessionStatusStmt,
-		updateTransactionStmt:          q.updateTransactionStmt,
-		updateTransactionStatusStmt:    q.updateTransactionStatusStmt,
-		updateWithdrawalStmt:           q.updateWithdrawalStmt,
+		db:                                   tx,
+		tx:                                   tx,
+		completeDepositSessionStmt:           q.completeDepositSessionStmt,
+		createTransactionStmt:                q.createTransactionStmt,
+		deleteTransactionStmt:                q.deleteTransactionStmt,
+		getBalanceStmt:                       q.getBalanceStmt,
+		getDepositSessionByIDStmt:            q.getDepositSessionByIDStmt,
+		getPendingTransactionsStmt:           q.getPendingTransactionsStmt,
+		getTransactionByDepositSessionIDStmt: q.getTransactionByDepositSessionIDStmt,
+		getTransactionByHashStmt:             q.getTransactionByHashStmt,
+		getTransactionByIDStmt:               q.getTransactionByIDStmt,
+		getTransactionByWithdrawalIDStmt:     q.getTransactionByWithdrawalIDStmt,
+		getTransactionStatsStmt:              q.getTransactionStatsStmt,
+		getTransactionsByAddressStmt:         q.getTransactionsByAddressStmt,
+		getTransactionsByStatusStmt:          q.getTransactionsByStatusStmt,
+		getUserBalancesStmt:                  q.getUserBalancesStmt,
+		getWithdrawalByIDStmt:                q.getWithdrawalByIDStmt,
+		listPendingDepositSessionsStmt:       q.listPendingDepositSessionsStmt,
+		listPendingWithdrawalsStmt:           q.listPendingWithdrawalsStmt,
+		logBalanceChangeStmt:                 q.logBalanceChangeStmt,
+		releaseReservedBalanceStmt:           q.releaseReservedBalanceStmt,
+		reserveBalanceStmt:                   q.reserveBalanceStmt,
+		updateBalanceStmt:                    q.updateBalanceStmt,
+		updateDepositSessionStatusStmt:       q.updateDepositSessionStatusStmt,
+		updateTransactionStmt:                q.updateTransactionStmt,
+		updateTransactionStatusStmt:          q.updateTransactionStatusStmt,
+		updateWithdrawalStmt:                 q.updateWithdrawalStmt,
 	}
 }

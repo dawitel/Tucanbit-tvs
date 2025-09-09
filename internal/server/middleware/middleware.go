@@ -105,3 +105,35 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func (m *Middleware) APIKeyMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var apiKey string
+
+		apiKeyHeader := c.GetHeader("X-API-Key")
+		if apiKeyHeader != "" {
+			apiKey = apiKeyHeader
+		} else {
+			apiKey = c.Query("api_key")
+			if apiKey == "" {
+				m.logger.Error().Msg("API key missing")
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "API key required via X-API-Key header or api_key query parameter",
+				})
+				c.Abort()
+				return
+			}
+		}
+
+		if err := m.AuthSvc.VerifyAPIKey(c.Request.Context(), apiKey); err != nil {
+			m.logger.Error().Err(err).Str("api_key", apiKey).Msg("Failed to verify API key")
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": err.Error(),
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}

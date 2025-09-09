@@ -78,6 +78,35 @@ func (r *sessionRepositoryImpl) CompleteSession(ctx context.Context, session dom
 
 	return nil
 }
+
+func (r *sessionRepositoryImpl) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTx(ctx, nil)
+}
+
+func (r *sessionRepositoryImpl) GetBySessionIDTx(ctx context.Context, tx *sql.Tx, sessionID string) (domain.DepositSession, error) {
+	txStore := r.store.WithTx(tx)
+	session, err := txStore.GetDepositSessionByID(ctx, sessionID)
+	if err != nil {
+		r.logger.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get deposit session")
+		return domain.DepositSession{}, fmt.Errorf("failed to get deposit session: %w", err)
+	}
+
+	return r.convertFromDB(&session), nil
+}
+
+func (r *sessionRepositoryImpl) UpdateDepositSessionStatusTx(ctx context.Context, tx *sql.Tx, sessionId string, status string) error {
+	txStore := r.store.WithTx(tx)
+	if err := txStore.UpdateDepositSessionStatus(ctx, sessionRepo.UpdateDepositSessionStatusParams{
+		SessionID: sessionId,
+		Status:    sessionRepo.DepositSessionStatus(status),
+	}); err != nil {
+		r.logger.Error().Err(err).Str("session_id", sessionId).Str("status", status).Msg("Failed to update deposit session status")
+		return fmt.Errorf("failed to update deposit session status: %w", err)
+	}
+
+	return nil
+}
+
 func (r *sessionRepositoryImpl) convertFromDB(session *sessionRepo.DepositSession) domain.DepositSession {
 	amtFloat := float64(0)
 	var err error
